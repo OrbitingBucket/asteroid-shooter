@@ -6,32 +6,30 @@ const screenHeight = window.innerHeight;
 
 // --- Configuration ---
 const config = {
-  type: Phaser.AUTO,
-  // --- Use initial window size ---
-  width: screenWidth,
-  height: screenHeight,
-  // --- Specify the parent container ID ---
-  parent: 'app', // Tells Phaser to put the canvas inside the <div id="app">
-  backgroundColor: '#003456',
-  // --- Add Scale Manager Config ---
-  scale: {
-      mode: Phaser.Scale.RESIZE, // Resizes canvas to fit parent ('app' div)
-      autoCenter: Phaser.Scale.CENTER_BOTH // Centers canvas within parent (good practice)
-  },
-  physics: {
-      default: 'arcade',
-      arcade: {
-          gravity: { y: 0 },
-          debug: false
-      }
-  },
-  scene: {
-      preload: preload,
-      create: create,
-      update: update
-  }
+    type: Phaser.AUTO,
+    width: window.innerWidth,  // Use window size initially
+    height: window.innerHeight,
+    parent: 'app',
+    backgroundColor: '#001f3f', // Dark blue space background
+    scale: {
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 0 },
+            // Set large world bounds if needed, or rely on cleanup
+            // worldBounds: new Phaser.Geom.Rectangle(-2000, -2000, 4000, 4000),
+            debug: false // Set to true to see physics bodies
+        }
+    },
+    scene: {
+        preload: preload,
+        create: create,
+        update: update
+    }
 };
-
 
 // --- Game Initialization ---
 const game = new Phaser.Game(config);
@@ -52,7 +50,7 @@ let particleEmitter; // For explosion effects
 // --- Constants ---
 
 // Grid
-const GRID_SIZE = 50; // Increased size for visibility
+const GRID_SIZE = 50;
 const GRID_COLOR = 0x4488ff;
 const GRID_ALPHA = 0.3;
 const GRID_LINE_WIDTH = .35;
@@ -62,8 +60,8 @@ const SHIP_SPEED = 250;
 const PLAYER_SIZE = { width: 20, height: 30 };
 const PLAYER_LINE_WIDTH = 2;
 const PLAYER_ANGULAR_VELOCITY = 250;
-const PLAYER_DRAG = 0.2; // Changed drag interpretation slightly (closer to 1 = less drag)
-const PLAYER_ANGULAR_DRAG = 200; // Angular drag still seems reasonable
+const PLAYER_DRAG = 0.2;
+const PLAYER_ANGULAR_DRAG = 200;
 
 // Asteroid Categories Configuration
 const ASTEROID_CATEGORIES = {
@@ -82,8 +80,7 @@ const ASTEROID_COLOR = 0xffffff;
 const ASTEROID_JAGGEDNESS = 0.4; // Shape irregularity factor
 const ASTEROID_MIN_VERTICES = 6; // Min vertices for shape
 const ASTEROID_MAX_VERTICES = 11;// Max vertices for shape
-const ASTEROID_INITIAL_COUNT = 10; // Increased initial count
-const ASTEROID_SPAWN_RATE = 1500; // Milliseconds between new spawns
+const ASTEROID_SPAWN_RATE = 2500; // Milliseconds between new spawns
 const ASTEROID_MIN_SPEED = 30;    // Min initial speed
 const ASTEROID_MAX_SPEED = 80;    // Max initial speed
 const ASTEROID_MAX_ROTATION_SPEED = 60; // Degrees per second max angular velocity
@@ -96,12 +93,18 @@ const ASTEROID_HIT_FILL_COLOR = 0xffffff; // Color for hit flash
 const ASTEROID_HIT_FILL_ALPHA = 0.4;    // Alpha for hit flash
 const ASTEROID_HIT_DURATION = 100;      // Duration of hit flash in ms
 
+// *** NEW/UPDATED Asteroid Generation Strategy Constants ***
+const ASTEROID_INITIAL_COUNT = 20; // Number of asteroids at game start
+const PLAYER_INITIAL_SAFE_ZONE_RADIUS = 150; // Don't spawn initial asteroids too close to player start
+const PLAYER_SPEED_THRESHOLD_FOR_BIAS = 50; // Player speed needed to trigger biased spawning
+const SPAWN_BIAS_STRENGTH = 0.6; // How much to favor the forward direction (0 = no bias, 1 = heavily biased)
+
 // Bullets
-const BULLET_SPEED = 1000;
+const BULLET_SPEED = 1500;
 const BULLET_COOLDOWN = 300;
-const BULLET_LENGTH = 18;         // Visual length of the bullet line
+const BULLET_LENGTH = 32;         // Visual length of the bullet line
 const BULLET_THICKNESS = 3;         // Visual thickness
-const BULLET_COLOR = 0x00ff00;    // Bright green color
+const BULLET_COLOR = 0x06a2c6;    // Bright green color
 const BULLET_CLEANUP_BUFFER = 50;   // How far off-screen before despawning
 
 // Explosion Particles
@@ -131,7 +134,6 @@ function create() {
     const scene = this; // 'this' refers to the Scene object Phaser creates
 
     // --- Get Actual Initial Game Size ---
-    // Use the scale manager's size AFTER Phaser initialization
     const gameWidth = scene.scale.width;
     const gameHeight = scene.scale.height;
     console.log(`Initial game size: ${gameWidth} x ${gameHeight}`);
@@ -142,24 +144,20 @@ function create() {
     // --- Player Setup ---
     playerGraphics = scene.add.graphics();
     drawPlayerShape(playerGraphics); // Draw the triangle
-    // --- Position player in the center of the actual game view ---
     player = scene.add.container(gameWidth / 2, gameHeight / 2, [playerGraphics]);
     player.angle = -90; // Point upwards initially
     scene.physics.world.enable(player);
-    player.body.setSize(PLAYER_SIZE.width, PLAYER_SIZE.height); // Match visual shape better
-    player.body.setOffset(-PLAYER_SIZE.width / 2, -PLAYER_SIZE.height / 2); // Center physics body
-    player.body.setCollideWorldBounds(false); // Allow player to fly off-screen
-    player.body.setDamping(true); // Enable drag
-    player.body.setDrag(PLAYER_DRAG, PLAYER_DRAG); // Apply linear drag (both x/y)
-    player.body.setAngularDrag(PLAYER_ANGULAR_DRAG); // Apply angular drag
-    player.body.setMaxVelocity(SHIP_SPEED * 1.5); // Limit max speed
+    player.body.setSize(PLAYER_SIZE.width, PLAYER_SIZE.height);
+    player.body.setOffset(-PLAYER_SIZE.width / 2, -PLAYER_SIZE.height / 2);
+    player.body.setCollideWorldBounds(false);
+    player.body.setDamping(true);
+    player.body.setDrag(PLAYER_DRAG, PLAYER_DRAG);
+    player.body.setAngularDrag(PLAYER_ANGULAR_DRAG);
+    player.body.setMaxVelocity(SHIP_SPEED * 1.5);
 
     // --- Camera Setup ---
-    // Set infinite bounds for scrolling map
     scene.cameras.main.setBounds(-Infinity, -Infinity, Infinity, Infinity);
-    // Make camera follow the player smoothly
-    scene.cameras.main.startFollow(player, true, 0.1, 0.1); // lerp values control smoothness (0 to 1)
-    // Set background color (redundant with config but good practice)
+    scene.cameras.main.startFollow(player, true, 0.1, 0.1);
     scene.cameras.main.setBackgroundColor(config.backgroundColor);
 
     // --- Input Setup ---
@@ -171,172 +169,297 @@ function create() {
     asteroidsGroup = scene.physics.add.group({
         bounceX: ASTEROID_BOUNCE,
         bounceY: ASTEROID_BOUNCE,
-        collideWorldBounds: false, // Allow asteroids to go off-screen
+        collideWorldBounds: false,
     });
 
     // --- Bullet Setup ---
     bulletsGroup = scene.physics.add.group({
-        collideWorldBounds: false, // Allow bullets to go off-screen
+        collideWorldBounds: false,
     });
-    lastFiredTime = 0; // Initialize fire timer
+    lastFiredTime = 0;
 
     // --- Particle Setup ---
-    particleEmitter = scene.add.particles(0, 0, 'particle', { // Use the generated 'particle' texture
-        speed: { min: 50, max: EXPLOSION_PARTICLE_SPEED }, // Particle speed range
-        angle: { min: 0, max: 360 },         // Emit in all directions
-        scale: { start: 1.2, end: 0 },      // Shrink particles over time
-        alpha: { start: 1, end: 0 },        // Fade out particles
-        lifespan: EXPLOSION_PARTICLE_LIFESPAN, // How long particles live
-        blendMode: 'ADD',                   // Additive blend looks good for explosions
-        frequency: -1,                      // Don't emit continuously, only on explode
-        quantity: EXPLOSION_PARTICLE_COUNT  // Number of particles per explosion
+    particleEmitter = scene.add.particles(0, 0, 'particle', {
+        speed: { min: 50, max: EXPLOSION_PARTICLE_SPEED },
+        angle: { min: 0, max: 360 },
+        scale: { start: 1.2, end: 0 },
+        alpha: { start: 1, end: 0 },
+        lifespan: EXPLOSION_PARTICLE_LIFESPAN,
+        blendMode: 'ADD',
+        frequency: -1,
+        quantity: EXPLOSION_PARTICLE_COUNT
     });
-    particleEmitter.setDepth(1); // Ensure particles appear above asteroids/grid
+    particleEmitter.setDepth(1);
 
     // --- Physics Colliders / Overlaps ---
-    // Asteroid vs Asteroid collision (Physical interaction)
     scene.physics.add.collider(asteroidsGroup, asteroidsGroup, handleAsteroidCollision);
-    // Player vs Asteroid collision (Physical interaction)
     scene.physics.add.collider(player, asteroidsGroup, handlePlayerAsteroidCollision);
-
-    // Bullet vs Asteroid collision -> USE OVERLAP
-    // Overlap detects collision without causing physical bounce/momentum transfer from bullet
     scene.physics.add.overlap(
         bulletsGroup,
         asteroidsGroup,
-        handleBulletAsteroidCollision, // The collision callback
-        null,                          // Optional process callback (we don't need one)
-        scene                          // The context ('this') for the callback function
+        handleBulletAsteroidCollision,
+        null,
+        scene
     );
 
-    // --- Initial Spawning ---
+    // --- Initial Spawning (USING NEW IN-VIEW FUNCTION) ---
+    console.log(`Spawning ${ASTEROID_INITIAL_COUNT} initial asteroids in view...`);
     for (let i = 0; i < ASTEROID_INITIAL_COUNT; i++) {
-        spawnAsteroid(scene); // Pass scene context
+        spawnAsteroidInView(scene); // Spawn asteroids within initial view
     }
-    // Start timed asteroid spawning
+
+    // Start timed asteroid spawning (calls the regular 'spawnAsteroid' with bias)
     asteroidSpawnTimer = scene.time.addEvent({
         delay: ASTEROID_SPAWN_RATE,
-        callback: () => { spawnAsteroid(scene); }, // Ensure scene context is available
+        callback: () => { spawnAsteroid(scene); }, // This calls the bias-aware function
         loop: true
     });
 
     // --- Initial Grid Draw ---
-    // Assuming drawVisibleGrid uses the camera passed to it correctly
     drawVisibleGrid(scene.cameras.main);
 
     // --- Add Resize Listener ---
-    // Listen for the 'resize' event from the Scale Manager
-    scene.scale.on('resize', handleResize, scene); // Call handleResize with scene context
+    scene.scale.on('resize', handleResize, scene);
 }
 
 function update(time, delta) {
-    const scene = this; // Reference to the scene context for callbacks
+    const scene = this;
 
-    // Handle player input for movement and rotation
-    handlePlayerMovement(scene); // Pass scene context
-
-    // Handle player input for shooting
-    handleShooting(scene, time); // Pass scene context and time
-
-    // Redraw the grid based on camera movement
-    // Consider optimizing if performance becomes an issue
-    drawVisibleGrid(scene.cameras.main); // Pass camera
-
-    // Remove asteroids that have flown too far off-screen
-    cleanupOutOfBoundsAsteroids(scene.cameras.main); // Pass camera
-
-    // Remove bullets that have flown too far off-screen
-    cleanupOutOfBoundsBullets(scene.cameras.main); // Pass camera
+    handlePlayerMovement(scene);
+    handleShooting(scene, time);
+    drawVisibleGrid(scene.cameras.main);
+    cleanupOutOfBoundsAsteroids(scene.cameras.main);
+    cleanupOutOfBoundsBullets(scene.cameras.main);
 }
 
-// --- Add the Resize Handler Function ---
 function handleResize(gameSize, baseSize, displaySize, resolution) {
-    // 'this' will be the scene context because we passed it in scene.scale.on
     const scene = this;
     const newWidth = gameSize.width;
     const newHeight = gameSize.height;
-
     console.log(`Game resized to: ${newWidth}x${newHeight}`);
-
-    // The main camera is automatically resized by RESIZE mode.
-    // You usually DON'T need to resize it manually:
-    // scene.cameras.main.setSize(newWidth, newHeight);
-
-    // Redraw the grid immediately with the new camera size/view
-    if (gridGraphics && scene.cameras.main) { // Check if graphics object exists
+    if (gridGraphics && scene.cameras.main) {
         drawVisibleGrid(scene.cameras.main);
     }
-
-    // If you had UI elements (like score text, lives) anchored to corners,
-    // you would reposition them here based on newWidth and newHeight.
-    // Example:
-    // if (scene.scoreText) {
-    //    scene.scoreText.setPosition(newWidth - 10, 10).setOrigin(1, 0); // Anchor to Top right
-    // }
-    // if (scene.livesIcons) {
-    //    // Reposition a group of life icons in the top left
-    //    scene.livesIcons.setX(10);
-    //    scene.livesIcons.setY(10);
-    // }
+    // Reposition UI elements here if needed
 }
-
 
 // --- Helper Functions ---
 
 // --- Spawning Logic ---
-// Spawns a single asteroid off-screen
-function spawnAsteroid(scene) {
-    const camera = scene.cameras.main;
-    if (!camera) return; // Safety check
-    const worldView = camera.worldView;
 
-    // Select a random category (XS, S, M)
+// Spawns an asteroid *within* or *near* the initial camera view
+// Used for the initial setup.
+function spawnAsteroidInView(scene) {
+    const camera = scene.cameras.main;
+    if (!camera) return;
+
+    // Use the initial game dimensions for placement, assuming create() is called once
+    const spawnAreaWidth = scene.scale.width;
+    const spawnAreaHeight = scene.scale.height;
+    const playerStartX = spawnAreaWidth / 2;
+    const playerStartY = spawnAreaHeight / 2;
+
+    // Select category, size, hp, vertices (same as spawnAsteroid)
     const categoryName = Phaser.Utils.Array.GetRandom(ACTIVE_ASTEROID_CATEGORIES);
     const category = ASTEROID_CATEGORIES[categoryName];
     if (!category) {
         console.error("Invalid asteroid category selected:", categoryName);
         return;
     }
-    // Determine visual size and HP based on category
     const visualSize = Phaser.Math.Between(category.minSize, category.maxSize);
     const initialHp = category.hp;
     const numVertices = Phaser.Math.Between(ASTEROID_MIN_VERTICES, ASTEROID_MAX_VERTICES);
 
     let spawnX, spawnY;
     let foundSpot = false;
-    // Try several times to find a non-overlapping spawn location
-    for (let retry = 0; retry < SPAWN_MAX_RETRIES; retry++) {
-        // Choose a random edge (top, right, bottom, left) relative to camera view
-        const edge = Phaser.Math.Between(0, 3);
-        switch (edge) {
-            case 0: // Top edge
-                 spawnX = Phaser.Math.FloatBetween(worldView.left - SPAWN_BUFFER, worldView.right + SPAWN_BUFFER);
-                 spawnY = worldView.top - SPAWN_BUFFER - Math.random() * SPAWN_BUFFER; break;
-            case 1: // Right edge
-                 spawnX = worldView.right + SPAWN_BUFFER + Math.random() * SPAWN_BUFFER;
-                 spawnY = Phaser.Math.FloatBetween(worldView.top - SPAWN_BUFFER, worldView.bottom + SPAWN_BUFFER); break;
-            case 2: // Bottom edge
-                 spawnX = Phaser.Math.FloatBetween(worldView.left - SPAWN_BUFFER, worldView.right + SPAWN_BUFFER);
-                 spawnY = worldView.bottom + SPAWN_BUFFER + Math.random() * SPAWN_BUFFER; break;
-            case 3: // Left edge
-                 spawnX = worldView.left - SPAWN_BUFFER - Math.random() * SPAWN_BUFFER;
-                 spawnY = Phaser.Math.FloatBetween(worldView.top - SPAWN_BUFFER, worldView.bottom + SPAWN_BUFFER); break;
-        }
-        tempSpawnPoint.set(spawnX, spawnY); // Use temp vector
 
-        // Check for overlap with existing asteroids
+    // Try several times to find a non-overlapping spot NOT too close to the player start
+    for (let retry = 0; retry < SPAWN_MAX_RETRIES * 2; retry++) { // More retries maybe needed
+        // Pick a random spot within the initial screen dimensions
+        // Add a small margin so they aren't exactly ON the edge
+        const margin = visualSize; // Ensure the whole asteroid is likely within view
+        spawnX = Phaser.Math.FloatBetween(margin, spawnAreaWidth - margin);
+        spawnY = Phaser.Math.FloatBetween(margin, spawnAreaHeight - margin);
+        tempSpawnPoint.set(spawnX, spawnY);
+
+        // Check 1: Distance from player start position
+        const distFromPlayer = Phaser.Math.Distance.Between(spawnX, spawnY, playerStartX, playerStartY);
+        if (distFromPlayer < PLAYER_INITIAL_SAFE_ZONE_RADIUS) {
+            continue; // Too close to player, try again
+        }
+
+        // Check 2: Overlap with existing asteroids
         let overlaps = false;
         asteroidsGroup.children.iterate((existingAsteroid) => {
-            if (!existingAsteroid || !existingAsteroid.body || !existingAsteroid.active) return true; // Skip inactive/invalid
-            const existingSize = existingAsteroid.getData('visualSize') || category.minSize; // Use stored size or default
-            // Calculate required distance based on both radii + multiplier
+            if (!existingAsteroid || !existingAsteroid.body || !existingAsteroid.active) return true;
+            const existingSize = existingAsteroid.getData('visualSize') || category.minSize;
             const requiredDist = (visualSize + existingSize) * SPAWN_CHECK_RADIUS_MULTIPLIER;
             const currentDist = Phaser.Math.Distance.Between(tempSpawnPoint.x, tempSpawnPoint.y, existingAsteroid.x, existingAsteroid.y);
             if (currentDist < requiredDist) {
                 overlaps = true;
-                return false; // Stop iteration early if overlap found
+                return false;
             }
-            return true; // Continue checking
+            return true;
+        });
+
+        if (!overlaps) {
+            foundSpot = true;
+            break; // Exit retry loop
+        }
+    }
+
+    // If no non-overlapping spot found, maybe place it slightly outside view or just skip
+    if (!foundSpot) {
+         // Fallback: Use the regular spawn logic to place it off-screen
+         console.warn("Could not find suitable spot in view for initial asteroid, spawning off-screen.");
+         spawnAsteroid(scene); // Call the regular off-screen spawner as a fallback
+         return; // Exit this function
+    }
+
+    // --- Create the Asteroid --- (Mostly same as spawnAsteroid)
+    const points = generateAsteroidPoints(visualSize, numVertices);
+    const asteroidGraphics = scene.add.graphics();
+    drawAsteroidShape(asteroidGraphics, points);
+    asteroidsGroup.add(asteroidGraphics);
+    asteroidGraphics.setPosition(spawnX, spawnY);
+
+    if (asteroidGraphics.body) {
+        const body = asteroidGraphics.body;
+        const colliderRadius = visualSize * 0.9;
+        body.setCircle(colliderRadius);
+        body.setOffset(-colliderRadius, -colliderRadius);
+
+        // *** Set initial velocity to a RANDOM direction for in-view asteroids ***
+        const angle = Phaser.Math.FloatBetween(0, Math.PI * 2); // Random angle
+        const speed = Phaser.Math.Between(ASTEROID_MIN_SPEED * 0.5, ASTEROID_MAX_SPEED * 0.8); // Maybe slightly slower initially
+        scene.physics.velocityFromRotation(angle, speed, body.velocity);
+
+        body.setAngularVelocity(Phaser.Math.FloatBetween(-ASTEROID_MAX_ROTATION_SPEED, ASTEROID_MAX_ROTATION_SPEED));
+        body.setBounce(ASTEROID_BOUNCE);
+
+        asteroidGraphics.setData('category', categoryName);
+        asteroidGraphics.setData('hitPoints', initialHp);
+        asteroidGraphics.setData('visualSize', visualSize);
+        asteroidGraphics.setData('points', points);
+        asteroidGraphics.setData('isHit', false);
+
+    } else {
+        console.error("Failed to get physics body for initial asteroid!");
+        asteroidGraphics.destroy();
+    }
+}
+
+// Spawns a single asteroid off-screen (modified for directional bias)
+// This is called by the timer and as a fallback by spawnAsteroidInView
+function spawnAsteroid(scene) {
+    const camera = scene.cameras.main;
+    if (!camera) return; // Safety check
+    const worldView = camera.worldView;
+
+    // Select category, size, hp, vertices
+    const categoryName = Phaser.Utils.Array.GetRandom(ACTIVE_ASTEROID_CATEGORIES);
+    const category = ASTEROID_CATEGORIES[categoryName];
+    if (!category) {
+        console.error("Invalid asteroid category selected:", categoryName);
+        return;
+    }
+    const visualSize = Phaser.Math.Between(category.minSize, category.maxSize);
+    const initialHp = category.hp;
+    const numVertices = Phaser.Math.Between(ASTEROID_MIN_VERTICES, ASTEROID_MAX_VERTICES);
+
+    let spawnX, spawnY;
+    let foundSpot = false;
+
+    // --- Determine Spawn Edge (with potential bias) ---
+    let edge = Phaser.Math.Between(0, 3); // Default: Random edge
+    let useBias = false;
+
+    // Check if player exists and is moving fast enough to apply bias
+    if (player && player.body) {
+        const playerSpeed = player.body.velocity.length();
+        if (playerSpeed > PLAYER_SPEED_THRESHOLD_FOR_BIAS) {
+            useBias = true;
+            const playerVelAngle = player.body.velocity.angle(); // Radians
+
+            // Define angles for edges (approximate centers) in radians
+            const angleRight = 0;
+            const angleDown = Math.PI / 2;
+            const angleLeft = Math.PI;
+            const angleUp = -Math.PI / 2; // Or Math.PI * 1.5
+
+            // Calculate angular difference (shortest path) to determine primary direction
+            const diffRight = Phaser.Math.Angle.Wrap(playerVelAngle - angleRight);
+            const diffDown = Phaser.Math.Angle.Wrap(playerVelAngle - angleDown);
+            const diffLeft = Phaser.Math.Angle.Wrap(playerVelAngle - angleLeft);
+            const diffUp = Phaser.Math.Angle.Wrap(playerVelAngle - angleUp);
+
+            // Simple weighting: give higher chance to edges "ahead" of the player
+            // We want to spawn more frequently on the edge the player is moving TOWARDS.
+            const weights = [
+                1.0, // Weight for edge 0 (Top)
+                1.0, // Weight for edge 1 (Right)
+                1.0, // Weight for edge 2 (Bottom)
+                1.0  // Weight for edge 3 (Left)
+            ];
+            // Bias amount increases the weight significantly for the forward edge(s)
+            const biasAmount = 1.0 + SPAWN_BIAS_STRENGTH * 4; // Adjust multiplier for stronger/weaker bias
+
+            // Check which direction the player is primarily moving towards (within +/- 45 degrees)
+            if (Math.abs(diffUp) <= Math.PI / 4)    weights[0] *= biasAmount;   // Moving Up -> Spawn Top
+            if (Math.abs(diffRight) <= Math.PI / 4) weights[1] *= biasAmount;   // Moving Right -> Spawn Right
+            if (Math.abs(diffDown) <= Math.PI / 4)  weights[2] *= biasAmount;   // Moving Down -> Spawn Bottom
+            if (Math.abs(diffLeft) <= Math.PI / 4)  weights[3] *= biasAmount;   // Moving Left -> Spawn Left
+
+            // --- Weighted Random Selection ---
+            const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+            let randomThreshold = Math.random() * totalWeight;
+            for (let i = 0; i < weights.length; i++) {
+                if (randomThreshold < weights[i]) {
+                    edge = i;
+                    break;
+                }
+                randomThreshold -= weights[i];
+            }
+             // console.log(`Bias Active: Player Speed=${playerSpeed.toFixed(1)}, Angle=${playerVelAngle.toFixed(2)}, Chosen Edge=${edge}`); // For debugging
+        }
+    }
+    // --- End Spawn Edge Determination ---
+
+    // Try several times to find a non-overlapping spawn location on the chosen edge
+    for (let retry = 0; retry < SPAWN_MAX_RETRIES; retry++) {
+        // Calculate spawn point based on the selected edge
+        switch (edge) {
+             case 0: // Top edge
+                 spawnX = Phaser.Math.FloatBetween(worldView.left - SPAWN_BUFFER, worldView.right + SPAWN_BUFFER);
+                 spawnY = worldView.top - SPAWN_BUFFER - Math.random() * SPAWN_BUFFER * 0.5; // Slightly less random depth
+                 break;
+            case 1: // Right edge
+                 spawnX = worldView.right + SPAWN_BUFFER + Math.random() * SPAWN_BUFFER * 0.5;
+                 spawnY = Phaser.Math.FloatBetween(worldView.top - SPAWN_BUFFER, worldView.bottom + SPAWN_BUFFER);
+                 break;
+            case 2: // Bottom edge
+                 spawnX = Phaser.Math.FloatBetween(worldView.left - SPAWN_BUFFER, worldView.right + SPAWN_BUFFER);
+                 spawnY = worldView.bottom + SPAWN_BUFFER + Math.random() * SPAWN_BUFFER * 0.5;
+                 break;
+            case 3: // Left edge
+                 spawnX = worldView.left - SPAWN_BUFFER - Math.random() * SPAWN_BUFFER * 0.5;
+                 spawnY = Phaser.Math.FloatBetween(worldView.top - SPAWN_BUFFER, worldView.bottom + SPAWN_BUFFER);
+                 break;
+        }
+        tempSpawnPoint.set(spawnX, spawnY);
+
+        // --- Overlap Check (Same as before) ---
+        let overlaps = false;
+        asteroidsGroup.children.iterate((existingAsteroid) => {
+            if (!existingAsteroid || !existingAsteroid.body || !existingAsteroid.active) return true;
+            const existingSize = existingAsteroid.getData('visualSize') || category.minSize;
+            const requiredDist = (visualSize + existingSize) * SPAWN_CHECK_RADIUS_MULTIPLIER;
+            const currentDist = Phaser.Math.Distance.Between(tempSpawnPoint.x, tempSpawnPoint.y, existingAsteroid.x, existingAsteroid.y);
+            if (currentDist < requiredDist) {
+                overlaps = true;
+                return false;
+            }
+            return true;
         });
 
         if (!overlaps) {
@@ -347,233 +470,148 @@ function spawnAsteroid(scene) {
 
     // If no non-overlapping spot found after retries, skip spawning this time
     if (!foundSpot) {
-        // console.log("Could not find non-overlapping spawn spot.");
+        // console.log("Could not find non-overlapping spawn spot for off-screen asteroid.");
         return;
     }
 
-    // Generate Graphics Points for the asteroid's jagged shape
+    // --- Create Asteroid (Same as before) ---
     const points = generateAsteroidPoints(visualSize, numVertices);
-
-    // Create Graphics object for the asteroid visual
     const asteroidGraphics = scene.add.graphics();
-    drawAsteroidShape(asteroidGraphics, points); // Initial draw (stroke only)
+    drawAsteroidShape(asteroidGraphics, points);
+    asteroidsGroup.add(asteroidGraphics);
+    asteroidGraphics.setPosition(spawnX, spawnY);
 
-    // Add the graphics object to the PHYSICS group (this enables physics)
-    asteroidsGroup.add(asteroidGraphics); // IMPORTANT: Add to the correct group
-    asteroidGraphics.setPosition(spawnX, spawnY); // Set position
-
-    // Configure the Physics Body *after* adding to the group
     if (asteroidGraphics.body) {
         const body = asteroidGraphics.body;
-        // Set physics body to a circle approximating the visual size
-        const colliderRadius = visualSize * 0.9; // Adjust multiplier as needed
+        const colliderRadius = visualSize * 0.9;
         body.setCircle(colliderRadius);
-        body.setOffset(-colliderRadius, -colliderRadius); // Center the circle body
+        body.setOffset(-colliderRadius, -colliderRadius);
 
-        // Set initial velocity towards the center of the current view (approx)
+        // *** Velocity towards the center of the current view (Same as before) ***
         const targetX = worldView.centerX + Phaser.Math.FloatBetween(-worldView.width * 0.1, worldView.width * 0.1);
         const targetY = worldView.centerY + Phaser.Math.FloatBetween(-worldView.height * 0.1, worldView.height * 0.1);
         const angle = Phaser.Math.Angle.Between(spawnX, spawnY, targetX, targetY);
         const speed = Phaser.Math.Between(ASTEROID_MIN_SPEED, ASTEROID_MAX_SPEED);
-        scene.physics.velocityFromRotation(angle, speed, body.velocity); // Use scene context
+        scene.physics.velocityFromRotation(angle, speed, body.velocity);
 
-        // Set random angular velocity
         body.setAngularVelocity(Phaser.Math.FloatBetween(-ASTEROID_MAX_ROTATION_SPEED, ASTEROID_MAX_ROTATION_SPEED));
-        // Set bounce (restitution)
-        body.setBounce(ASTEROID_BOUNCE); // Inherited from group, but can be set per-object
+        body.setBounce(ASTEROID_BOUNCE);
 
-        // --- Store Custom Data on the Asteroid GameObject --- //
         asteroidGraphics.setData('category', categoryName);
         asteroidGraphics.setData('hitPoints', initialHp);
         asteroidGraphics.setData('visualSize', visualSize);
-        asteroidGraphics.setData('points', points); // Store the vertex points for redrawing
-        asteroidGraphics.setData('isHit', false);   // Flag for hit visual effect state
-
+        asteroidGraphics.setData('points', points);
+        asteroidGraphics.setData('isHit', false);
     } else {
-        console.error("Failed to get physics body for asteroid! Was it added to the physics group?");
-        asteroidGraphics.destroy(); // Clean up if physics body failed
+        console.error("Failed to get physics body for off-screen asteroid!");
+        asteroidGraphics.destroy();
     }
 }
+
 
 // --- Shooting Logic ---
-// Checks input and cooldown, calls shootBullet if ready
 function handleShooting(scene, time) {
-     if (spaceKey.isDown && time > lastFiredTime + BULLET_COOLDOWN) {
-        shootBullet(scene); // Pass scene context
-        lastFiredTime = time; // Reset cooldown timer
+    if (spaceKey.isDown && time > lastFiredTime + BULLET_COOLDOWN) {
+        shootBullet(scene);
+        lastFiredTime = time;
     }
 }
 
-// Creates and fires a single bullet from the player's ship tip
 function shootBullet(scene) {
-    if (!player || !player.active) return; // Don't shoot if player doesn't exist
+    if (!player || !player.active) return;
 
-    // Calculate the world position of the ship's tip
-    // Local offset: x = distance forward from center, y = 0 (centerline)
-    const localTipX = PLAYER_SIZE.height / 2 + 5; // Slightly ahead of the visual tip
+    const localTipX = PLAYER_SIZE.height / 2 + 5;
     const localTipY = 0;
-    player.getWorldTransformMatrix().transformPoint(localTipX, localTipY, tempBulletPos); // Use temp point
+    player.getWorldTransformMatrix().transformPoint(localTipX, localTipY, tempBulletPos);
 
-    // Create Graphics object for the bullet's visual representation
     const bulletGraphics = scene.add.graphics();
     bulletGraphics.lineStyle(BULLET_THICKNESS, BULLET_COLOR, 1.0);
-    // Draw a line centered at (0,0) - position/rotation handles placement
     bulletGraphics.lineBetween(-BULLET_LENGTH / 2, 0, BULLET_LENGTH / 2, 0);
 
-    // Add the graphics object to the bullets physics group
     bulletsGroup.add(bulletGraphics);
-    bulletGraphics.setPosition(tempBulletPos.x, tempBulletPos.y); // Set initial position
-    bulletGraphics.setRotation(player.rotation); // Match player's rotation
+    bulletGraphics.setPosition(tempBulletPos.x, tempBulletPos.y);
+    bulletGraphics.setRotation(player.rotation);
 
-    // Configure the Physics Body
     if (bulletGraphics.body) {
         const body = bulletGraphics.body;
-        // Set physics body size (approximating the line)
         body.setSize(BULLET_LENGTH, BULLET_THICKNESS);
-        body.setOffset(-BULLET_LENGTH / 2, -BULLET_THICKNESS / 2); // Center the body
-
-        // Set velocity based on player's rotation and bullet speed
-        scene.physics.velocityFromRotation(player.rotation, BULLET_SPEED, body.velocity); // Use scene context
-
-        // Bullets shouldn't be affected by gravity or drag
+        body.setOffset(-BULLET_LENGTH / 2, -BULLET_THICKNESS / 2);
+        scene.physics.velocityFromRotation(player.rotation, BULLET_SPEED, body.velocity);
         body.setAllowGravity(false);
-        body.setAngularVelocity(0); // No spin
-        body.setDrag(0, 0); // No air resistance
+        body.setAngularVelocity(0);
+        body.setDrag(0, 0);
     } else {
         console.error("Failed to create physics body for bullet!");
-        bulletGraphics.destroy(); // Clean up if physics fails
+        bulletGraphics.destroy();
     }
 }
 
 // --- Collision Handlers ---
-
-// Called when a bullet OVERLAPS an asteroid (using scene.physics.add.overlap)
 function handleBulletAsteroidCollision(bullet, asteroid) {
-    // 'this' context is passed correctly from the add.overlap call
     const scene = this;
-
-    // Ensure both objects are still active and valid before proceeding
     if (!bullet.active || !asteroid.active || !asteroid.body) {
         return;
     }
 
-    // Destroy the bullet immediately on impact
-    bulletsGroup.remove(bullet, true, true); // Remove from group, destroy GameObject, remove from scene
+    bulletsGroup.remove(bullet, true, true);
 
-    // Get asteroid custom data
     let currentHp = asteroid.getData('hitPoints');
     const categoryName = asteroid.getData('category');
-    const points = asteroid.getData('points'); // Get stored points for redrawing hit effect
-    const isHit = asteroid.getData('isHit');   // Check if already showing hit effect
+    const points = asteroid.getData('points');
+    const isHit = asteroid.getData('isHit');
 
-    // Safety check for missing HP data
     if (currentHp === undefined) {
         console.warn("Asteroid hit without hitPoints data!", asteroid);
-        asteroidsGroup.remove(asteroid, true, true); // Remove the invalid asteroid
+        asteroidsGroup.remove(asteroid, true, true);
         return;
     }
-     // Safety check for missing points data (needed for hit effect)
      if (!points) {
         console.warn("Asteroid hit without points data! Cannot show hit effect.", asteroid);
-        // Asteroid still takes damage, just no visual flash
     }
 
-    // Decrement HP
     currentHp--;
-    asteroid.setData('hitPoints', currentHp); // Update the HP stored on the asteroid
+    asteroid.setData('hitPoints', currentHp);
 
-    // Check if asteroid is destroyed (HP <= 0)
     if (currentHp <= 0) {
-        // --- Asteroid Destroyed ---
-
-        // 1. Trigger Explosion Effect at asteroid's position
-        if (particleEmitter) { // Check if emitter exists
-            particleEmitter.emitParticleAt(asteroid.x, asteroid.y); // Emit particles
+        if (particleEmitter) {
+            particleEmitter.emitParticleAt(asteroid.x, asteroid.y);
         }
-
-        // --- TODO: Implement Breaking Logic ---
-        // Check if the category is supposed to break into smaller pieces
-        // const category = ASTEROID_CATEGORIES[categoryName];
-        // if (category && category.breakInto && category.breakCount > 0) {
-        //     breakAsteroid(scene, asteroid, category.breakInto, category.breakCount); // Need to implement breakAsteroid
-        // }
-
-        // 2. Destroy the asteroid *after* getting its position for the explosion/breaking
-        asteroidsGroup.remove(asteroid, true, true); // Remove & Destroy
-
-        // --- TODO: Add Point Scoring / Sound Effects Here ---
-        // e.g., scene.registry.get('scoreManager').addScore(10);
-        // e.g., scene.sound.play('explosion_sound');
-
+        // TODO: Implement Breaking Logic
+        asteroidsGroup.remove(asteroid, true, true);
+        // TODO: Add Scoring / Sound
     } else {
-        // --- Asteroid Hit but Survived ---
-
-        // 1. Apply Visual Hit Effect (flash) if points exist and not already flashing
         if (points && !isHit) {
-            asteroid.setData('isHit', true); // Mark as being in hit state
-
-            // Redraw the asteroid shape with a temporary fill
+            asteroid.setData('isHit', true);
             drawAsteroidShape(asteroid, points, ASTEROID_HIT_FILL_COLOR, ASTEROID_HIT_FILL_ALPHA);
-
-            // Schedule a revert back to the normal stroke-only appearance after a short duration
             scene.time.delayedCall(ASTEROID_HIT_DURATION, () => {
-                // IMPORTANT: Check if asteroid still exists and is active before trying to redraw
-                if (asteroid && asteroid.active && asteroid.getData('hitPoints') > 0) { // Also check HP > 0 just in case
-                     drawAsteroidShape(asteroid, points); // Redraw stroke-only
-                     asteroid.setData('isHit', false); // Reset hit state flag
+                if (asteroid && asteroid.active && asteroid.getData('hitPoints') > 0) {
+                     drawAsteroidShape(asteroid, points);
+                     asteroid.setData('isHit', false);
                 }
-            }, [], scene); // Pass scene context to delayedCall's scope
+            }, [], scene);
         }
-
-        // --- TODO: Add Hit Sound Effect Here ---
-        // e.g., scene.sound.play('asteroid_hit_sound');
-        // console.log(`Asteroid ${categoryName} hit, HP remaining: ${currentHp}`);
+        // TODO: Add Hit Sound
     }
 }
 
-// Called when the player physically collides with an asteroid (using scene.physics.add.collider)
 function handlePlayerAsteroidCollision(player, asteroid) {
-    // 'this' context should be the scene, but we don't strictly need it here yet
-    // const scene = this;
-
-    // Basic check if objects are valid
     if (!player.active || !asteroid.active || !asteroid.body) return;
-
     console.log("Player hit asteroid!");
-
-    // Trigger explosion effect for the asteroid
     if (particleEmitter) {
         particleEmitter.emitParticleAt(asteroid.x, asteroid.y);
     }
-
-    // Destroy the asteroid on collision with player
     asteroidsGroup.remove(asteroid, true, true);
-
-    // --- TODO: Implement Player Damage Logic ---
-    // - Reduce player lives/health
-    // - Trigger player hit visual effect (e.g., flash, temporary invincibility)
-    // - Play player damage sound
-    // - Check for game over condition
-    // Example:
-    // player.setData('health', player.getData('health') - 1);
-    // if (player.getData('health') <= 0) { scene.scene.start('GameOverScene'); }
-    // else { scene.cameras.main.flash(200, 255, 0, 0); } // Red flash
+    // TODO: Implement Player Damage Logic
 }
 
-// Called when two asteroids physically collide (using scene.physics.add.collider)
 function handleAsteroidCollision(asteroid1, asteroid2) {
-    // Could play a small "thud" or "clack" sound effect here
-    // e.g., this.sound.play('asteroid_collide_sound', { volume: 0.2 });
-    // console.log("Asteroids collided");
-    // Physics engine handles the bounce based on group/body settings
+    // Optional: Play sound
 }
 
 // --- Cleanup Functions ---
-// Removes bullets that are far outside the camera's view
 function cleanupOutOfBoundsBullets(camera) {
     if (!camera) return;
     const worldView = camera.worldView;
-    // Define a larger boundary outside the camera view
     const cleanupBounds = new Phaser.Geom.Rectangle(
         worldView.left - BULLET_CLEANUP_BUFFER,
         worldView.top - BULLET_CLEANUP_BUFFER,
@@ -582,19 +620,16 @@ function cleanupOutOfBoundsBullets(camera) {
     );
 
     bulletsGroup.children.iterate((bullet) => {
-        // Check if bullet exists, has a body, and is outside the cleanup bounds
         if (bullet && bullet.body && !Phaser.Geom.Rectangle.Contains(cleanupBounds, bullet.x, bullet.y)) {
-            bulletsGroup.remove(bullet, true, true); // Remove and destroy
+            bulletsGroup.remove(bullet, true, true);
         }
-        return true; // Continue iteration
+        return true;
     });
 }
 
-// Removes asteroids that are far outside the camera's view
 function cleanupOutOfBoundsAsteroids(camera) {
-     if (!camera) return;
+    if (!camera) return;
     const worldView = camera.worldView;
-    // Define a larger boundary outside the camera view for asteroids
     const cleanupBounds = new Phaser.Geom.Rectangle(
         worldView.left - CLEANUP_BUFFER,
         worldView.top - CLEANUP_BUFFER,
@@ -603,147 +638,104 @@ function cleanupOutOfBoundsAsteroids(camera) {
     );
 
     asteroidsGroup.children.iterate((asteroid) => {
-         // Check if asteroid exists, has a body, and is outside the cleanup bounds
-        if (asteroid && asteroid.body && !Phaser.Geom.Rectangle.Contains(cleanupBounds, asteroid.x, asteroid.y)) {
-            asteroidsGroup.remove(asteroid, true, true); // Remove and destroy
+         if (asteroid && asteroid.body && !Phaser.Geom.Rectangle.Contains(cleanupBounds, asteroid.x, asteroid.y)) {
+            asteroidsGroup.remove(asteroid, true, true);
         }
-        return true; // Continue iteration
+        return true;
     });
 }
 
 // --- Player Movement ---
-// Handles player rotation and thrust based on keyboard input
 function handlePlayerMovement(scene) {
-    // Safety check for player and its physics body
-     if (!player || !player.body) return;
+    if (!player || !player.body) return;
 
-    // --- Rotation ---
-    // Reset angular velocity each frame unless a key is pressed
     player.body.setAngularVelocity(0);
-
     if (cursors.left.isDown || wasdKeys.A.isDown) {
-        player.body.setAngularVelocity(-PLAYER_ANGULAR_VELOCITY); // Rotate left
+        player.body.setAngularVelocity(-PLAYER_ANGULAR_VELOCITY);
     } else if (cursors.right.isDown || wasdKeys.D.isDown) {
-        player.body.setAngularVelocity(PLAYER_ANGULAR_VELOCITY); // Rotate right
+        player.body.setAngularVelocity(PLAYER_ANGULAR_VELOCITY);
     }
 
-    // --- Thrust ---
-    // Apply acceleration in the direction the ship is facing
     if (cursors.up.isDown || wasdKeys.W.isDown) {
-        // Calculate acceleration vector based on ship's rotation and speed constant
-        scene.physics.velocityFromRotation(player.rotation, SHIP_SPEED, player.body.acceleration); // Use scene context
+        scene.physics.velocityFromRotation(player.rotation, SHIP_SPEED, player.body.acceleration);
     } else {
-        // If up key isn't pressed, stop accelerating
-        // Drag will naturally slow the ship down
         player.body.setAcceleration(0);
     }
-
-    // --- Optional: Brakes/Reverse ---
-    // if (cursors.down.isDown || wasdKeys.S.isDown) {
-    //     // Apply acceleration in the opposite direction
-    //     scene.physics.velocityFromRotation(player.rotation, -SHIP_SPEED / 2, player.body.acceleration);
-    // }
 }
-
 
 // --- Graphics Drawing Functions ---
-
-// Draws the player's ship shape (triangle)
 function drawPlayerShape(graphics) {
-    graphics.clear(); // Clear previous drawing
-    graphics.lineStyle(PLAYER_LINE_WIDTH, 0xffffff, 1.0); // White outline
+    graphics.clear();
+    graphics.lineStyle(PLAYER_LINE_WIDTH, 0xffffff, 1.0);
     graphics.beginPath();
-    // Define vertices relative to the container's center (0,0)
-    // Tip points forward (positive X direction before rotation)
-    graphics.moveTo(PLAYER_SIZE.height / 2, 0);                    // Nose tip
-    graphics.lineTo(-PLAYER_SIZE.height / 2, -PLAYER_SIZE.width / 2); // Bottom-left wing
-    graphics.lineTo(-PLAYER_SIZE.height / 2, PLAYER_SIZE.width / 2);  // Bottom-right wing
-    graphics.closePath(); // Connect back to the start
-    graphics.strokePath(); // Draw the outline
+    graphics.moveTo(PLAYER_SIZE.height / 2, 0);
+    graphics.lineTo(-PLAYER_SIZE.height / 2, -PLAYER_SIZE.width / 2);
+    graphics.lineTo(-PLAYER_SIZE.height / 2, PLAYER_SIZE.width / 2);
+    graphics.closePath();
+    graphics.strokePath();
 }
 
-// Generates random points for a jagged asteroid shape
 function generateAsteroidPoints(avgRadius, numVertices) {
     const points = [];
-    const angleStep = (Math.PI * 2) / numVertices; // Angle between base vertices
-    // Define min/max radius based on average and jaggedness factor
+    const angleStep = (Math.PI * 2) / numVertices;
     const radiusMin = avgRadius * (1 - ASTEROID_JAGGEDNESS);
     const radiusMax = avgRadius * (1 + ASTEROID_JAGGEDNESS);
 
     for (let i = 0; i < numVertices; i++) {
         const baseAngle = i * angleStep;
-        // Add slight randomness to the angle for vertex positioning
-        const angle = baseAngle + Phaser.Math.FloatBetween(-angleStep * 0.2, angleStep * 0.2); // Adjust random range as needed
-        // Choose a random radius within the defined range
+        const angle = baseAngle + Phaser.Math.FloatBetween(-angleStep * 0.2, angleStep * 0.2);
         const radius = Phaser.Math.FloatBetween(radiusMin, radiusMax);
-        // Calculate vertex position (relative to center 0,0)
         points.push({
             x: Math.cos(angle) * radius,
             y: Math.sin(angle) * radius
         });
     }
-    return points; // Return the array of {x, y} points
+    return points;
 }
 
-// Draws the asteroid shape using provided points, optionally with a fill
 function drawAsteroidShape(graphics, points, fillStyle = null, fillAlpha = 1.0) {
-    // Safety check for valid graphics object and points array
     if (!graphics || !points || points.length < 3) {
-        // console.warn("Cannot draw asteroid shape: Invalid graphics or points.");
         return;
     }
-    graphics.clear(); // Clear any previous drawing on this graphics object
+    graphics.clear();
 
-    // --- Draw Fill (if requested) ---
     if (fillStyle !== null) {
         graphics.fillStyle(fillStyle, fillAlpha);
         graphics.beginPath();
-        graphics.moveTo(points[0].x, points[0].y); // Start at the first point
+        graphics.moveTo(points[0].x, points[0].y);
         for (let i = 1; i < points.length; i++) {
-            graphics.lineTo(points[i].x, points[i].y); // Draw lines to subsequent points
+            graphics.lineTo(points[i].x, points[i].y);
         }
-        graphics.closePath(); // Connect the last point back to the first
-        graphics.fillPath(); // Fill the defined shape
+        graphics.closePath();
+        graphics.fillPath();
     }
 
-    // --- Draw Stroke (outline) - Always draw this on top of fill ---
-    graphics.lineStyle(ASTEROID_LINE_WIDTH, ASTEROID_COLOR, 1.0); // Use constants for style
+    graphics.lineStyle(ASTEROID_LINE_WIDTH, ASTEROID_COLOR, 1.0);
     graphics.beginPath();
-    graphics.moveTo(points[0].x, points[0].y); // Start at the first point
+    graphics.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) {
-        graphics.lineTo(points[i].x, points[i].y); // Draw lines to subsequent points
+        graphics.lineTo(points[i].x, points[i].y);
     }
-    graphics.closePath(); // Connect the last point back to the first
-    graphics.strokePath(); // Draw the outline
+    graphics.closePath();
+    graphics.strokePath();
 }
 
-
 // --- Grid Drawing ---
-// Draws a grid covering the camera's current view
 function drawVisibleGrid(camera) {
-    // Safety check for graphics object and camera
     if (!gridGraphics || !camera) return;
 
-    gridGraphics.clear(); // Clear previous grid lines
-    gridGraphics.lineStyle(GRID_LINE_WIDTH, GRID_COLOR, GRID_ALPHA); // Set line style
+    gridGraphics.clear();
+    gridGraphics.lineStyle(GRID_LINE_WIDTH, GRID_COLOR, GRID_ALPHA);
 
-    const worldView = camera.worldView; // Get the camera's view rectangle in world coordinates
-
-    // Calculate the offset needed to align grid lines perfectly, regardless of camera scroll
+    const worldView = camera.worldView;
     const gridOffsetX = worldView.x % GRID_SIZE;
     const gridOffsetY = worldView.y % GRID_SIZE;
 
-    // Draw Vertical lines
-    // Start drawing from the left edge of the view, adjusted by the offset,
-    // and continue until past the right edge.
     for (let x = worldView.left - gridOffsetX; x < worldView.right + GRID_SIZE; x += GRID_SIZE) {
-        gridGraphics.lineBetween(x, worldView.top, x, worldView.bottom); // Draw line from top to bottom of view
+        gridGraphics.lineBetween(x, worldView.top, x, worldView.bottom);
     }
 
-    // Draw Horizontal lines
-    // Start drawing from the top edge of the view, adjusted by the offset,
-    // and continue until past the bottom edge.
     for (let y = worldView.top - gridOffsetY; y < worldView.bottom + GRID_SIZE; y += GRID_SIZE) {
-        gridGraphics.lineBetween(worldView.left, y, worldView.right, y); // Draw line from left to right of view
+        gridGraphics.lineBetween(worldView.left, y, worldView.right, y);
     }
 }
