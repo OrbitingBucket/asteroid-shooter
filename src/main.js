@@ -11,7 +11,7 @@ const config = {
     width: window.innerWidth,  // Use window size initially
     height: window.innerHeight,
     parent: 'app', // Make sure you have <div id="app"></div> in your HTML
-    backgroundColor: '#001f3f', // Dark blue space background
+    backgroundColor: '#005D83', // Dark blue space background
     scale: {
         mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH
